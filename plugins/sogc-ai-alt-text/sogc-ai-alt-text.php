@@ -680,3 +680,12 @@ class SOGC_AI_Alt_Text {
 
 // Initialize Plugin
 add_action('plugins_loaded', array('SOGC_AI_Alt_Text', 'get_instance'));
+
+// Initialize GitHub Auto-Updater
+require_once plugin_dir_path(__FILE__) . 'class-sogc-github-updater.php';
+new SOGC_GitHub_Plugin_Updater(
+    __FILE__,
+    'sogc-org/sogc-wp-plugins',
+    '1.0.0',
+    'plugins/sogc-ai-alt-text'
+);

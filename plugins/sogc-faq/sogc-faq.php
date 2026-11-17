@@ -222,3 +222,12 @@ class SOGC_FAQ_Plugin {
 }
 
 new SOGC_FAQ_Plugin();
+
+// Initialize GitHub Auto-Updater
+require_once plugin_dir_path(__FILE__) . 'class-sogc-github-updater.php';
+new SOGC_GitHub_Plugin_Updater(
+    __FILE__,
+    'sogc-org/sogc-wp-plugins',
+    '1.2.0',
+    'plugins/sogc-faq'
+);
