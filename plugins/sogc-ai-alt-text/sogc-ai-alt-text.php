@@ -3,7 +3,7 @@
  * Plugin Name: SOGC AI Alt Text & Image Describer
  * Plugin URI: https://sogc.org/
  * Description: Automatically generates medical, accessible WCAG-compliant alt text and descriptions for WordPress media using Google Gemini Vision. Supports real-time upload processing and bulk background generation.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Society of Obstetricians and Gynaecologists of Canada (SOGC)
  * Author URI: https://sogc.org/
  * License: GPLv2 or later
@@ -376,21 +376,31 @@ class SOGC_AI_Alt_Text {
                         nonce: '<?php echo wp_create_nonce('sogc_ai_bulk_nonce'); ?>'
                     },
                     success: function(resp) {
-                        processed++;
+                        var nextDelay = 4200; // Safe default for Gemini free tier (15 RPM limit)
+
                         if (resp.success && resp.data) {
                             var item = resp.data;
                             if (item.status === 'ok') {
+                                processed++;
                                 logMessage('[ID ' + item.id + '] ' + item.title + ' -> "' + item.alt + '"', 'item-success');
+                            } else if (item.status === 'rate_limit') {
+                                // Re-queue the attachment to retry after waiting
+                                queue.unshift(attId);
+                                var waitSeconds = item.retry_after ? Math.ceil(item.retry_after) : 40;
+                                nextDelay = waitSeconds * 1000;
+                                logMessage('[ID ' + item.id + '] Rate limit reached (15 RPM free tier). Pausing ' + waitSeconds + 's then retrying...', 'item-skip');
                             } else {
+                                processed++;
                                 logMessage('[ID ' + item.id + '] ' + item.title + ' -> ' + item.message, 'item-error');
                             }
                         } else {
+                            processed++;
                             logMessage('[ID ' + attId + '] Failed: ' + (resp.data ? resp.data.message : 'Unknown error'), 'item-error');
                         }
 
                         updateProgress();
                         if (isRunning) {
-                            setTimeout(processSingleNext, 300);
+                            setTimeout(processSingleNext, nextDelay);
                         }
                     },
                     error: function(xhr, status, error) {
@@ -398,7 +408,7 @@ class SOGC_AI_Alt_Text {
                         logMessage('[ID ' + attId + '] Network/Timeout Error: ' + error, 'item-error');
                         updateProgress();
                         if (isRunning) {
-                            setTimeout(processSingleNext, 500);
+                            setTimeout(processSingleNext, 4200);
                         }
                     }
                 });
@@ -615,6 +625,22 @@ class SOGC_AI_Alt_Text {
 
         if ($code !== 200) {
             $err_msg = isset($data['error']['message']) ? $data['error']['message'] : 'HTTP ' . $code;
+
+            // Detect Gemini Free Tier 429 Rate Limit
+            if ($code === 429 || stripos($err_msg, 'quota exceeded') !== false || stripos($err_msg, 'rate limit') !== false) {
+                $retry_after = 40;
+                if (preg_match('/retry in\s+([0-9.]+)\s*s/i', $err_msg, $match)) {
+                    $retry_after = floatval($match[1]) + 2;
+                }
+                return array(
+                    'id'          => $attachment_id,
+                    'title'       => $title,
+                    'status'      => 'rate_limit',
+                    'retry_after' => $retry_after,
+                    'message'     => $err_msg
+                );
+            }
+
             return array('id' => $attachment_id, 'title' => $title, 'status' => 'error', 'message' => $err_msg);
         }
 
@@ -685,7 +711,6 @@ add_action('plugins_loaded', array('SOGC_AI_Alt_Text', 'get_instance'));
 require_once plugin_dir_path(__FILE__) . 'class-sogc-github-updater.php';
 new SOGC_GitHub_Plugin_Updater(
     __FILE__,
-    'sogc-org/sogc-wp-plugins',
-    '1.0.0',
-    'plugins/sogc-ai-alt-text'
+    'sogc-org/sogc-ai-alt-text',
+    '1.0.1'
 );
